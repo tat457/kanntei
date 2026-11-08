@@ -385,6 +385,7 @@
         // --- 音響システム (Tone.jsを使用したシンセ音生成) ---
         let currentItem = null;
         let isAppraising = false;
+        let isAudioUnlocking = false;
         let activeTimer = null;
         let currentTab = 'game'; // 'game' or 'gen'
 
@@ -392,12 +393,10 @@
         let synth, noise, filter, noiseFilter, fmSynth;
 
         function initAudio() {
-            // ブラウザのセキュリティ制限（自動再生ブロック）を回避
-            if (typeof Tone !== 'undefined') {
-                Tone.start();
-            }
+            // Tone.jsを取得できない場合は、音なしで安全に続行する。
+            if (typeof Tone === 'undefined') return false;
 
-            if (synth) return; // 初期化済みならスキップ
+            if (synth) return true; // 初期化済みならスキップ
             
             try {
                 // ドラム回転音やピキーン用FM音源
@@ -421,6 +420,20 @@
 
             } catch (e) {
                 console.warn("Audio Initialization failed or not supported in this browser:", e);
+                return false;
+            }
+            return Boolean(synth && fmSynth);
+        }
+
+        // iPad / iPhone Safariでは、タップ操作中にAudioContextを開始する必要がある。
+        async function unlockAudioFromUserGesture() {
+            if (!initAudio()) return false;
+            try {
+                await Tone.start();
+                return Tone.context.state === 'running';
+            } catch (e) {
+                console.warn("Audio playback was blocked:", e);
+                return false;
             }
         }
 
@@ -825,8 +838,17 @@
         }
 
         // 鑑定処理のアクション統一ハンドラー
-        function handleMainAction() {
-            if (isAppraising) return;
+        async function handleMainAction() {
+            if (isAppraising || isAudioUnlocking) return;
+            isAudioUnlocking = true;
+            const mainActionBtn = document.getElementById('btn-main-action');
+            if (mainActionBtn) mainActionBtn.disabled = true;
+
+            // このawaitはボタンのタップから直接実行されるため、Safariでも音声利用を許可できる。
+            await unlockAudioFromUserGesture();
+            isAudioUnlocking = false;
+            if (mainActionBtn) mainActionBtn.disabled = false;
+
             if (currentTab === 'game') {
                 startGameAppraisal();
             } else {
